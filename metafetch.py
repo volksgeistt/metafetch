@@ -8,6 +8,7 @@ import time
 import sys
 from datetime import datetime, timedelta
 import re
+import urllib.request
 
 class metafetch:
     def __init__(self):
@@ -219,7 +220,6 @@ class metafetch:
             if wm:
                 return os.path.basename(wm)
             
-
             wms = ['i3', 'bspwm', 'awesome', 'dwm', 'openbox', 'fluxbox', 'jwm']
             try:
                 processes = [p.name() for p in psutil.process_iter(['name'])]
@@ -256,7 +256,6 @@ class metafetch:
             if not cpu_info:
                 cpu_info = platform.processor()
             
-
             cpu_info = re.sub(r'\s+', ' ', cpu_info)
             cpu_info = cpu_info.replace('(R)', '').replace('(TM)', '').replace('CPU', '').replace('@', '').strip()
             
@@ -356,7 +355,6 @@ class metafetch:
             return "Unknown"
     
     def get_resolution(self):
-
         try:
             if platform.system() == "Linux":
                 xrandr = self.run_command(['xrandr', '--current'])
@@ -431,6 +429,235 @@ class metafetch:
         except:
             return "Unknown"
     
+    def get_battery(self):
+        try:
+            if hasattr(psutil, "sensors_battery"):
+                battery = psutil.sensors_battery()
+                if battery:
+                    status = "Charging" if battery.power_plugged else "Discharging"
+                    return f"{battery.percent:.0f}% ({status})"
+            
+            if platform.system() == "Linux":
+                upower = self.run_command(['upower', '-i', '/org/freedesktop/UPower/devices/BAT0'])
+                if upower:
+                    percent = None
+                    state = None
+                    for line in upower.split('\n'):
+                        if 'percentage' in line.lower():
+                            percent = line.split(':')[-1].strip()
+                        elif 'state' in line.lower():
+                            state = line.split(':')[-1].strip()
+                    if percent and state:
+                        return f"{percent} ({state})"
+                
+                try:
+                    bat_path = "/sys/class/power_supply/BAT0/"
+                    if os.path.exists(bat_path):
+                        with open(bat_path + "capacity", 'r') as f:
+                            capacity = f.read().strip()
+                        with open(bat_path + "status", 'r') as f:
+                            status = f.read().strip()
+                        return f"{capacity}% ({status})"
+                except:
+                    pass
+            
+            return "Not available"
+        except:
+            return "Not available"
+    
+    def get_temperature(self):
+        try:
+            if hasattr(psutil, "sensors_temperatures"):
+                temps = psutil.sensors_temperatures()
+                if temps:
+                    cpu_temps = []
+                    for name, entries in temps.items():
+                        if 'coretemp' in name.lower() or 'cpu' in name.lower():
+                            for entry in entries:
+                                if entry.current:
+                                    cpu_temps.append(entry.current)
+                    if cpu_temps:
+                        avg_temp = sum(cpu_temps) / len(cpu_temps)
+                        return f"{avg_temp:.1f}°C"
+            
+            if platform.system() == "Linux":
+                try:
+                    thermal_zones = [f for f in os.listdir('/sys/class/thermal/') if f.startswith('thermal_zone')]
+                    for zone in thermal_zones:
+                        try:
+                            with open(f'/sys/class/thermal/{zone}/temp', 'r') as f:
+                                temp = int(f.read().strip()) / 1000
+                                return f"{temp:.1f}°C"
+                        except:
+                            continue
+                except:
+                    pass
+                
+                sensors = self.run_command(['sensors'])
+                if sensors:
+                    for line in sensors.split('\n'):
+                        if 'Core 0' in line or 'CPU Temperature' in line:
+                            temp_match = re.search(r'(\d+\.\d+)°C', line)
+                            if temp_match:
+                                return f"{temp_match.group(1)}°C"
+            
+            return "Not available"
+        except:
+            return "Not available"
+    
+    def get_load_average(self):
+        try:
+            if hasattr(os, 'getloadavg'):
+                load1, load5, load15 = os.getloadavg()
+                return f"{load1:.2f}, {load5:.2f}, {load15:.2f}"
+            elif platform.system() == "Linux":
+                with open('/proc/loadavg', 'r') as f:
+                    load_data = f.read().strip().split()
+                    return f"{load_data[0]}, {load_data[1]}, {load_data[2]}"
+            return "Not available"
+        except:
+            return "Not available"
+    
+    def get_processes(self):
+        try:
+            return str(len(psutil.pids()))
+        except:
+            return "Unknown"
+    
+    def get_users(self):
+        try:
+            users = psutil.users()
+            if users:
+                user_list = []
+                for user in users:
+                    user_info = f"{user.name}"
+                    if hasattr(user, 'terminal') and user.terminal:
+                        user_info += f" ({user.terminal})"
+                    user_list.append(user_info)
+                return ", ".join(set(user_list))
+            return "None"
+        except:
+            return "Unknown"
+    
+    def get_ip_address(self):
+        try:
+            services = [
+                'https://api.ipify.org',
+                'https://ipinfo.io/ip',
+                'https://ident.me'
+            ]
+            
+            for service in services:
+                try:
+                    with urllib.request.urlopen(service, timeout=3) as response:
+                        ip = response.read().decode('utf-8').strip()
+                        if ip and '.' in ip:
+                            return ip
+                except:
+                    continue
+            
+            return "Not available"
+        except:
+            return "Not available"
+    
+    def get_disk_usage_all(self):
+        try:
+            partitions = psutil.disk_partitions()
+            disk_info = []
+            
+            for partition in partitions:
+                try:
+                    usage = psutil.disk_usage(partition.mountpoint)
+                    used_gb = usage.used / (1024**3)
+                    total_gb = usage.total / (1024**3)
+                    percent = (usage.used / usage.total) * 100
+                    
+                    mount_point = partition.mountpoint
+                    if platform.system() == "Windows":
+                        mount_point = partition.device
+                    
+                    disk_info.append(f"{mount_point}: {used_gb:.1f}GB/{total_gb:.1f}GB ({percent:.0f}%)")
+                except (PermissionError, OSError):
+                    continue
+            
+            return " | ".join(disk_info[:3]) if disk_info else "Unknown"
+        except:
+            return "Unknown"
+    
+    def get_architecture(self):
+        try:
+            return platform.machine() or platform.architecture()[0]
+        except:
+            return "Unknown"
+    
+    def get_hostname_info(self):
+        try:
+            hostname = socket.gethostname()
+            try:
+                fqdn = socket.getfqdn()
+                if fqdn != hostname and '.' in fqdn:
+                    return f"{hostname} ({fqdn})"
+            except:
+                pass
+            return hostname
+        except:
+            return "Unknown"
+    
+    def get_timezone(self):
+        try:
+            if platform.system() == "Linux":
+                try:
+                    with open('/etc/timezone', 'r') as f:
+                        return f.read().strip()
+                except:
+                    pass
+                
+                timedatectl = self.run_command(['timedatectl', 'show', '--property=Timezone', '--value'])
+                if timedatectl:
+                    return timedatectl
+                
+                localtime = self.run_command(['readlink', '/etc/localtime'])
+                if localtime and 'zoneinfo' in localtime:
+                    return localtime.split('zoneinfo/')[-1]
+            
+            elif platform.system() == "Darwin":
+                timezone = self.run_command(['systemsetup', '-gettimezone'])
+                if timezone:
+                    return timezone.replace('Time Zone: ', '')
+            
+            elif platform.system() == "Windows":
+                timezone = self.run_command('tzutil /g')
+                if timezone:
+                    return timezone
+            
+            import time
+            return time.tzname[0]
+        except:
+            return "Unknown"
+    
+    def get_python_version(self):
+        try:
+            return f"Python {platform.python_version()}"
+        except:
+            return "Unknown"
+    
+    def get_session_info(self):
+        try:
+            session_info = []
+            
+            session_type = os.environ.get('XDG_SESSION_TYPE', '')
+            if session_type:
+                session_info.append(f"Type: {session_type}")
+            
+            if os.environ.get('WAYLAND_DISPLAY'):
+                session_info.append("Wayland")
+            elif os.environ.get('DISPLAY'):
+                session_info.append("X11")
+            
+            return " | ".join(session_info) if session_info else "Unknown"
+        except:
+            return "Unknown"
+    
     def get_ascii_art(self):
         system = platform.system().lower()
         
@@ -478,24 +705,22 @@ class metafetch:
             ]
         elif "windows" in system:
             return [
-                f"{self.colors['blue']}        ,.=:!!t3Z3z.,{self.colors['end']}",
-                f"{self.colors['blue']}       :tt:::tt333EE3{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::ztt33EEEL{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['cyan']} @@@@@@@@@@@@@@@@@@@@{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['end']}",
-                f"{self.colors['blue']}       Et:::zt333EEE{self.colors['end']}"
-            ]
+        f"{self.colors['blue']}        ██████████████████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ██████████████████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ██████████████████████████{self.colors['end']}",
+        f"{self.colors['green']}        ██████████████████████████{self.colors['end']}"            ]
         else:
             return [
                 f"{self.colors['cyan']}     .-\"\"\"\"\"-. {self.colors['end']}",
@@ -510,141 +735,161 @@ class metafetch:
                 "",
                 f"{self.colors['bold']}   Unknown System{self.colors['end']}"
             ]
-    
-    def collect_info(self):
-        self.info = {
-            'user': getpass.getuser(),
-            'hostname': socket.gethostname(),
-            'os': self.get_os_info(),
-            'kernel': self.get_kernel(),
-            'uptime': self.get_uptime(),
-            'packages': self.get_packages(),
-            'shell': self.get_shell(),
-            'desktop': self.get_desktop(),
-            'wm': self.get_window_manager(),
-            'terminal': self.get_terminal(),
-            'cpu': self.get_cpu(),
-            'gpu': self.get_gpu(),
-            'memory': self.get_memory(),
-            'swap': self.get_swap(),
-            'disk': self.get_disk(),
-            'network': self.get_network(),
-            'resolution': self.get_resolution()
+    def gather_info(self):
+        info_functions = {
+            'hostname': self.get_hostname_info,
+            'os': self.get_os_info,
+            'kernel': self.get_kernel,
+            'architecture': self.get_architecture,
+            'uptime': self.get_uptime,
+            'packages': self.get_packages,
+            'shell': self.get_shell,
+            'desktop': self.get_desktop,
+            'window_manager': self.get_window_manager,
+            'terminal': self.get_terminal,
+            'cpu': self.get_cpu,
+            'gpu': self.get_gpu,
+            'memory': self.get_memory,
+            'swap': self.get_swap,
+            'disk': self.get_disk,
+            'network': self.get_network,
+            'resolution': self.get_resolution,
+            'battery': self.get_battery,
+            'temperature': self.get_temperature,
+            'load_average': self.get_load_average,
+            'processes': self.get_processes,
+            'users': self.get_users,
+            'ip_address': self.get_ip_address,
+            'timezone': self.get_timezone,
+            'python_version': self.get_python_version,
+            'session': self.get_session_info
         }
+        
+        for key, func in info_functions.items():
+            try:
+                self.info[key] = func()
+            except Exception as e:
+                self.info[key] = "Error"
+    
+    def format_info_line(self, label, value, color='white'):
+        if value and value != "Unknown" and value != "Error" and value != "Not available":
+            return f"{self.colors[color]}{label}:{self.colors['end']} {value}"
+        return None
     
     def display(self):
-        self.collect_info()
+        self.gather_info()
+        
         ascii_art = self.get_ascii_art()
         
-        user_host = f"{self.colors['bold']}{self.colors['green']}{self.info['user']}{self.colors['red']}@{self.colors['blue']}{self.info['hostname']}{self.colors['end']}"
-        separator = f"{self.colors['gray']}{'-' * (len(self.info['user']) + len(self.info['hostname']) + 1)}{self.colors['end']}"
+        info_lines = []
         
-        info_lines = [
-            user_host,
-            separator,
-            f"{self.colors['bold']}{self.colors['red']}OS{self.colors['end']}: {self.info['os']}",
-            f"{self.colors['bold']}{self.colors['yellow']}Kernel{self.colors['end']}: {self.info['kernel']}",
-            f"{self.colors['bold']}{self.colors['green']}Uptime{self.colors['end']}: {self.info['uptime']}",
-            f"{self.colors['bold']}{self.colors['blue']}Packages{self.colors['end']}: {self.info['packages']}",
-            f"{self.colors['bold']}{self.colors['purple']}Shell{self.colors['end']}: {self.info['shell']}",
-            f"{self.colors['bold']}{self.colors['cyan']}Desktop{self.colors['end']}: {self.info['desktop']}",
+        username = getpass.getuser()
+        hostname = self.info.get('hostname', 'unknown')
+        info_lines.append(f"{self.colors['green']}{username}@{hostname}{self.colors['end']}")
+        info_lines.append("-" * len(f"{username}@{hostname}"))
+        
+        info_items = [
+            ('OS', self.info.get('os'), 'blue'),
+            ('Kernel', self.info.get('kernel'), 'cyan'),
+            ('Architecture', self.info.get('architecture'), 'yellow'),
+            ('Uptime', self.info.get('uptime'), 'green'),
+            ('Packages', self.info.get('packages'), 'purple'),
+            ('Shell', self.info.get('shell'), 'red'),
+            ('Desktop', self.info.get('desktop'), 'blue'),
+            ('Terminal', self.info.get('terminal'), 'cyan'),
+            ('CPU', self.info.get('cpu'), 'yellow'),
+            ('GPU', self.info.get('gpu'), 'green'),
+            ('Memory', self.info.get('memory'), 'purple'),
+            ('Swap', self.info.get('swap'), 'red'),
+            ('Disk', self.info.get('disk'), 'blue'),
+            ('Network', self.info.get('network'), 'cyan'),
+            ('Resolution', self.info.get('resolution'), 'yellow'),
+            ('Battery', self.info.get('battery'), 'green'),
+            ('Temperature', self.info.get('temperature'), 'purple'),
+            ('Load Avg', self.info.get('load_average'), 'red'),
+            ('Processes', self.info.get('processes'), 'blue'),
+            ('Users', self.info.get('users'), 'cyan'),
+            ('Public IP', self.info.get('ip_address'), 'yellow'),
+            ('Timezone', self.info.get('timezone'), 'green'),
+            ('Python', self.info.get('python_version'), 'purple'),
+            ('Session', self.info.get('session'), 'red')
         ]
         
-        if self.info['wm'] and self.info['wm'].lower() not in self.info['desktop'].lower():
-            info_lines.append(f"{self.colors['bold']}{self.colors['white']}WM{self.colors['end']}: {self.info['wm']}")
-        
-        info_lines.extend([
-            f"{self.colors['bold']}{self.colors['red']}Terminal{self.colors['end']}: {self.info['terminal']}",
-            f"{self.colors['bold']}{self.colors['yellow']}CPU{self.colors['end']}: {self.info['cpu']}",
-            f"{self.colors['bold']}{self.colors['green']}GPU{self.colors['end']}: {self.info['gpu']}",
-            f"{self.colors['bold']}{self.colors['blue']}Memory{self.colors['end']}: {self.info['memory']}"
-        ])
-        
-        if self.info['swap'] != "Not configured":
-            info_lines.append(f"{self.colors['bold']}{self.colors['purple']}Swap{self.colors['end']}: {self.info['swap']}")
-        
-        info_lines.extend([
-            f"{self.colors['bold']}{self.colors['cyan']}Disk{self.colors['end']}: {self.info['disk']}",
-f"{self.colors['white']}Network{self.colors['end']}: {self.info['network']}",
-            f"{self.colors['bold']}{self.colors['gray']}Resolution{self.colors['end']}: {self.info['resolution']}"
-        ])
-        
-        info_lines.append("")
-        colors_line1 = ""
-        colors_line2 = ""
-        color_names = ['red', 'green', 'yellow', 'blue', 'purple', 'cyan', 'white', 'gray']
-        
-        for color in color_names:
-            colors_line1 += f"{self.colors[color]}███{self.colors['end']}"
-            colors_line2 += f"{self.colors[color]}███{self.colors['end']}"
-        
-        info_lines.extend([colors_line1, colors_line2])
+        for label, value, color in info_items:
+            line = self.format_info_line(label, value, color)
+            if line:
+                info_lines.append(line)
         
         max_lines = max(len(ascii_art), len(info_lines))
         
         for i in range(max_lines):
             ascii_line = ascii_art[i] if i < len(ascii_art) else " " * 40
             info_line = info_lines[i] if i < len(info_lines) else ""
-            
-            clean_info = re.sub(r'\x1b\[[0-9;]*m', '', info_line)
-            padding = " " * (3) 
-            
-            print(f"{ascii_line}{padding}{info_line}")
+            print(f"{ascii_line:40} {info_line}")
     
-    def get_colors_demo(self):
-        print("\nColor Palette:")
-        for name, code in self.colors.items():
-            if name != 'end':
-                print(f"{code}{name.capitalize():10}{self.colors['end']}: {code}████████{self.colors['end']}")
-    
-    def get_minimal_info(self):
-        return {
-            'user_host': f"{getpass.getuser()}@{socket.gethostname()}",
-            'os': platform.system(),
-            'uptime': self.get_uptime(),
-            'memory': self.get_memory()
+    def display_compact(self):
+        self.gather_info()
+        
+        username = getpass.getuser()
+        hostname = self.info.get('hostname', 'unknown')
+        
+        print(f"\n{self.colors['bold']}{self.colors['green']}{username}@{hostname}{self.colors['end']}")
+        print("=" * (len(username) + len(hostname) + 1))
+        
+        categories = {
+            "System": [
+                ('OS', self.info.get('os')),
+                ('Kernel', self.info.get('kernel')),
+                ('Architecture', self.info.get('architecture')),
+                ('Uptime', self.info.get('uptime'))
+            ],
+            "Software": [
+                ('Packages', self.info.get('packages')),
+                ('Shell', self.info.get('shell')),
+                ('Desktop', self.info.get('desktop')),
+                ('Terminal', self.info.get('terminal'))
+            ],
+            "Hardware": [
+                ('CPU', self.info.get('cpu')),
+                ('GPU', self.info.get('gpu')),
+                ('Memory', self.info.get('memory')),
+                ('Disk', self.info.get('disk'))
+            ],
+            "Network": [
+                ('Local IP', self.info.get('network')),
+                ('Public IP', self.info.get('ip_address')),
+                ('Resolution', self.info.get('resolution'))
+            ],
+            "Status": [
+                ('Battery', self.info.get('battery')),
+                ('Temperature', self.info.get('temperature')),
+                ('Load Avg', self.info.get('load_average')),
+                ('Processes', self.info.get('processes'))
+            ]
         }
-    
-    def minimal_display(self):
-        info = self.get_minimal_info()
-        print(f"{self.colors['bold']}{self.colors['cyan']}{info['user_host']}{self.colors['end']}")
-        print(f"{self.colors['yellow']}OS{self.colors['end']}: {info['os']}")
-        print(f"{self.colors['green']}Uptime{self.colors['end']}: {info['uptime']}")
-        print(f"{self.colors['blue']}Memory{self.colors['end']}: {info['memory']}")
-
-
-def fetch(minimal=False, colors=False):
-    pf = metafetch()
-    
-    if colors:
-        pf.get_colors_demo()
-    elif minimal:
-        pf.minimal_display()
-    else:
-        pf.display()
-
+        
+        for category, items in categories.items():
+            print(f"\n{self.colors['bold']}{category}:{self.colors['end']}")
+            for label, value in items:
+                if value and value not in ["Unknown", "Error", "Not available"]:
+                    print(f"  {self.colors['cyan']}{label}:{self.colors['end']} {value}")
 
 def main():
-    import argparse
+    fetch = metafetch()
     
-    parser = argparse.ArgumentParser(description='metafetch - Enhanced system information tool')
-    parser.add_argument('-m', '--minimal', action='store_true', 
-                       help='Display minimal information')
-    parser.add_argument('-c', '--colors', action='store_true',
-                       help='Display color palette')
-    parser.add_argument('--version', action='version', version='metafetch 1.0.0')
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ['-h', '--help']:
+            print("MetaFetch - System Information Tool")
+            print("Usage:")
+            print("  metafetch         - Display full output with ASCII art")
+            print("  metafetch -c      - Display compact output")
+            print("  metafetch --help  - Show this help message")
+            return
+        elif sys.argv[1] in ['-c', '--compact']:
+            fetch.display_compact()
+            return
     
-    args = parser.parse_args()
-    
-    try:
-        fetch(minimal=args.minimal, colors=args.colors)
-    except KeyboardInterrupt:
-        print(f"\n{metafetch().colors['red']}Interrupted by user{metafetch().colors['end']}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"{metafetch().colors['red']}Error: {e}{metafetch().colors['end']}")
-        sys.exit(1)
-
+    fetch.display()
 
 if __name__ == "__main__":
     main()
