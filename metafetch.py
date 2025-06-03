@@ -785,8 +785,8 @@ class metafetch:
         
         username = getpass.getuser()
         hostname = self.info.get('hostname', 'unknown')
-        info_lines.append(f"{self.colors['green']}{username}@{hostname}{self.colors['end']}")
-        info_lines.append("-" * len(f"{username}@{hostname}"))
+        info_lines.append(f"{self.colors['green']}{self.colors['bold']}{username}@{hostname}{self.colors['end']}")
+        info_lines.append(f"{self.colors['green']}{'-' * len(f'{username}@{hostname}')}{self.colors['end']}")
         
         info_items = [
             ('OS', self.info.get('os'), 'blue'),
@@ -820,12 +820,28 @@ class metafetch:
             if line:
                 info_lines.append(line)
         
+        ascii_width = 35
         max_lines = max(len(ascii_art), len(info_lines))
         
+        print()
+        
         for i in range(max_lines):
-            ascii_line = ascii_art[i] if i < len(ascii_art) else " " * 40
-            info_line = info_lines[i] if i < len(info_lines) else ""
-            print(f"{ascii_line:40} {info_line}")
+            if i < len(ascii_art):
+                ascii_line = ascii_art[i]
+                ascii_clean = re.sub(r'\033\[[0-9;]*m', '', ascii_line)
+                ascii_padding = ascii_width - len(ascii_clean)
+                ascii_formatted = ascii_line + (' ' * ascii_padding)
+            else:
+                ascii_formatted = ' ' * ascii_width
+            
+            if i < len(info_lines):
+                info_line = info_lines[i]
+            else:
+                info_line = ""
+            
+            print(f"{ascii_formatted}  {info_line}")
+        
+        print()
     
     def display_compact(self):
         self.gather_info()
