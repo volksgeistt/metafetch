@@ -71,6 +71,19 @@ python --version
 python3 --version
 ```
 
+### Install from PyPI (Recommended)
+The easiest way to install MetaFetch is through PyPI:
+```bash
+# Install globally
+pip install metafetch
+
+# Or for user installation
+pip install --user metafetch
+
+# For Python 3 specifically
+pip3 install metafetch
+```
+
 ### Install from Source
 1. **Clone the repository:**
 ```bash
