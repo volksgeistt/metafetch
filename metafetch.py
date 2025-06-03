@@ -71,14 +71,45 @@ class metafetch:
                 return f"macOS {platform.release()}"
                 
             elif system == "Windows":
+                wmic_os = self.run_command('wmic os get Caption,Version /value')
+                if wmic_os:
+                    caption = None
+                    version = None
+                    for line in wmic_os.split('\n'):
+                        if 'Caption=' in line and line.split('=')[1].strip():
+                            caption = line.split('=')[1].strip()
+                        elif 'Version=' in line and line.split('=')[1].strip():
+                            version = line.split('=')[1].strip()
+                    
+                    if caption and version:
+                        return f"{caption} (Version {version})"
+                    elif caption:
+                        return caption
+                
                 try:
                     import winreg
                     key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-                    product_name = winreg.QueryValueEx(key, "ProductName")[0]
-                    build = winreg.QueryValueEx(key, "CurrentBuild")[0]
-                    return f"{product_name} (Build {build})"
+                    
+                    try:
+                        display_version = winreg.QueryValueEx(key, "DisplayVersion")[0]
+                        product_name = winreg.QueryValueEx(key, "ProductName")[0]
+                        build = winreg.QueryValueEx(key, "CurrentBuild")[0]
+                        
+                        if int(build) >= 22000:
+                            product_name = product_name.replace("Windows 10", "Windows 11")
+                        
+                        return f"{product_name} {display_version} (Build {build})"
+                    except:
+                        product_name = winreg.QueryValueEx(key, "ProductName")[0]
+                        build = winreg.QueryValueEx(key, "CurrentBuild")[0]
+                        
+                        if int(build) >= 22000:
+                            product_name = product_name.replace("Windows 10", "Windows 11")
+                        
+                        return f"{product_name} (Build {build})"
                 except:
                     pass
+                
                 return f"Windows {platform.release()}"
             else:
                 return f"{system} {platform.release()}"
