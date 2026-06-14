@@ -9,6 +9,9 @@ import sys
 from datetime import datetime, timedelta
 import re
 import urllib.request
+import concurrent.futures
+
+__version__ = "1.0.5"
 
 class metafetch:
     def __init__(self):
@@ -171,15 +174,23 @@ class metafetch:
                 ('cargo', ['cargo', 'install', '--list'], lambda x: len([l for l in x.split('\n') if l and not l.startswith(' ')]))
             ]
             
-            for name, cmd, counter in managers:
+            def check_manager(name, cmd, counter):
                 output = self.run_command(cmd)
                 if output:
                     try:
                         count = counter(output)
                         if count > 0:
-                            counts.append(f"{count} ({name})")
+                            return f"{count} ({name})"
                     except:
-                        continue
+                        pass
+                return None
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(check_manager, name, cmd, counter) for name, cmd, counter in managers]
+                for future in concurrent.futures.as_completed(futures):
+                    res = future.result()
+                    if res:
+                        counts.append(res)
             
             return ", ".join(counts[:3]) if counts else "Unknown"  
         except:
@@ -578,15 +589,22 @@ class metafetch:
                 'https://ident.me'
             ]
             
-            for service in services:
+            def fetch_ip(url):
                 try:
-                    with urllib.request.urlopen(service, timeout=3) as response:
+                    with urllib.request.urlopen(url, timeout=1.5) as response:
                         ip = response.read().decode('utf-8').strip()
-                        if ip and '.' in ip:
+                        if ip and ('.' in ip or ':' in ip):
                             return ip
                 except:
-                    continue
-            
+                    pass
+                return None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [executor.submit(fetch_ip, url) for url in services]
+                for future in concurrent.futures.as_completed(futures):
+                    res = future.result()
+                    if res:
+                        return res
             return "Not available"
         except:
             return "Not available"
@@ -736,8 +754,8 @@ class metafetch:
             ]
         elif "windows" in system:
             return [
-        f"{self.colors['blue']}        ██████████████████████████{self.colors['end']}",
-        f"{self.colors['blue']}        ██████████████████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
+        f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
         f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
         f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
         f"{self.colors['blue']}        ███████████{self.colors['cyan']}█████████████{self.colors['end']}",
@@ -750,8 +768,8 @@ class metafetch:
         f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
         f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
         f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
-        f"{self.colors['green']}        ██████████████████████████{self.colors['end']}",
-        f"{self.colors['green']}        ██████████████████████████{self.colors['end']}"            ]
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}",
+        f"{self.colors['green']}        ███████████{self.colors['yellow']}█████████████{self.colors['end']}"            ]
         else:
             return [
                 f"{self.colors['cyan']}     .-\"\"\"\"\"-. {self.colors['end']}",
@@ -796,11 +814,14 @@ class metafetch:
             'session': self.get_session_info
         }
         
-        for key, func in info_functions.items():
-            try:
-                self.info[key] = func()
-            except Exception as e:
-                self.info[key] = "Error"
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = {executor.submit(func): key for key, func in info_functions.items()}
+            for future in concurrent.futures.as_completed(futures):
+                key = futures[future]
+                try:
+                    self.info[key] = future.result()
+                except Exception:
+                    self.info[key] = "Error"
     
     def format_info_line(self, label, value, color='white'):
         if value and value != "Unknown" and value != "Error" and value != "Not available":
@@ -922,18 +943,28 @@ class metafetch:
                     print(f"  {self.colors['cyan']}{label}:{self.colors['end']} {value}")
 
 def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
     fetch = metafetch()
     
     if len(sys.argv) > 1:
         if sys.argv[1] in ['-h', '--help']:
             print("MetaFetch - System Information Tool")
             print("Usage:")
-            print("  metafetch         - Display full output with ASCII art")
-            print("  metafetch -c      - Display compact output")
-            print("  metafetch --help  - Show this help message")
+            print("  metafetch               - Display full output with ASCII art")
+            print("  metafetch -c, --compact - Display compact output")
+            print("  metafetch -v, --version - Show version information")
+            print("  metafetch --help        - Show this help message")
             return
         elif sys.argv[1] in ['-c', '--compact']:
             fetch.display_compact()
+            return
+        elif sys.argv[1] in ['-v', '--version']:
+            print(f"MetaFetch version {__version__}")
             return
     
     fetch.display()
