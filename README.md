@@ -1,4 +1,7 @@
 # MetaFetch
+<img width="1199" height="429" alt="image" src="https://github.com/user-attachments/assets/d26d46b5-36df-4dd2-9fc9-dcafc9e22790" />
+
+---
 
 A beautiful, fast, and comprehensive system information tool inspired by neofetch, written in Python with enhanced cross-platform support and advanced system monitoring capabilities.
 
